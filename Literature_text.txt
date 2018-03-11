@@ -1,0 +1,184 @@
+getwd()
+
+
+read.csv("Literature.csv")
+
+Literature<-read.csv("Literature.csv",header=TRUE,stringsAsFactors=FALSE)
+
+View(Literature)
+
+
+
+str(Literature)
+Literature<-Literature[,c(1,2,4,5,6)]
+Literature_text<- rbind(Literature)
+View(Literature_text)
+names(Literature_text)
+dim(Literature_text)
+
+
+
+#structure of Literature_text
+
+str(Literature_text)
+
+#exploratory analysis of the dataset
+
+#Check if there are any missing values in the dataset
+data1<- is.na(Literature_text)
+data1
+colSums(is.na(Literature_text))
+
+#distribution of ratings
+ggplot(Literature_text , aes(x = rating, fill = factor(rating))) +
+  geom_bar(color = "grey20") + scale_fill_brewer(palette = "YlGnBu") + guides(fill = FALSE)
+
+#mean user rating 
+Literature_text %>% 
+  group_by(userid) %>% 
+  summarize(mean_user_rating = mean(rating)) %>% 
+  ggplot(aes(mean_user_rating)) +
+  geom_histogram(bins= "5",fill = "cadetblue3", color = "grey20")
+
+#analysis of the dataset
+summary(Literature_text)
+
+
+#data preprocessing using tm package
+library(tm)
+
+#build a text corpus
+#source for the corpus
+
+
+Literature_text.corpus<-Corpus(VectorSource(Literature_text$text))
+
+summary(Literature_text.corpus[1:5])
+inspect(Literature_text.corpus[1:5])
+
+#Data Transformations
+Literature_text.corpus<-tm_map(Literature_text.corpus,tolower)
+Literature_text.corpus<-tm_map(Literature_text.corpus,stripWhitespace)
+Literature_text.corpus<-tm_map(Literature_text.corpus,removePunctuation)
+Literature_text.corpus<-tm_map(Literature_text.corpus,removeNumbers)
+
+my_stopwords<-c(stopwords('english'),'http*')
+Literature_text.corpus<-tm_map(Literature_text.corpus,removeWords,my_stopwords)
+
+
+#building term document matrix
+Literature_text.tdm<-TermDocumentMatrix(Literature_text.corpus)
+
+#to show no of terms and documents
+Literature_text.tdm
+
+dim(Literature_text.tdm)#dim of term document matrix 
+inspect(Literature_text.tdm[1:10,1:10])
+
+
+#remove sparse terms(words that occur infrequently)
+Literature_text.imp<-removeSparseTerms(Literature_text.tdm,0.97)
+Literature_text.imp
+
+inspect(Literature_text.imp[1:3,1:3])
+
+#finding words and frequencies
+
+temp<-inspect(Literature_text.imp)
+
+wordfreq<-data.frame(apply(temp,1,sum))
+
+wordfreq<-data.frame(ST=row.names(wordfreq),freq = wordfreq[,1])
+
+head(wordfreq)
+
+wordfreq<-wordfreq[order(wordfreq$freq,decreasing=T),]
+findFreqTerms(Literature_text.tdm,30)
+
+#correalation value
+
+findAssocs(Literature_text.tdm,"great",0.2)
+findAssocs(Literature_text.tdm,"weekend",0.3)
+findAssocs(Literature_text.tdm,"week",0.3)
+
+
+#Building a word cloud
+#visualization using word cloud
+
+library("wordcloud")
+library("RColorBrewer")
+
+#customizing wordcloud
+#need to use text corpus and not term document matrix
+
+?brewer.pal
+
+display.brewer.all()
+brewer.pal
+
+display.brewer.pal(8,"Dark2")
+display.brewer.pal(5,"Purples")
+pal2<-brewer.pal(8,"Dark2")
+
+#plot your word cloud
+wordcloud(Literature_text.corpus,min.freq=30,max.words=100,random.order=T,colors=pal2)
+
+
+
+library(data.table)
+library(recommenderlab)
+
+recommenderRegistry$get_entry_names()
+ 
+# Loading to pre-computed Literature data
+ 
+ Literature.data<-Literature[,c(1,2,5)]
+View(Literature.data)
+ Literature.matrix<- as(Literature.data,"realRatingMatrix")
+ 
+  View(Literature..matrix)
+ 
+  # Creation of the model - U(ser) B(ased) C(ollaborative) F(iltering)
+ Rec.model=Recommender(Literature.matrix[1:3000],method="UBCF", 
+                       param=list(normalize = "Z-score",method="Cosine",nn=5, minRating=1))
+ 
+ # recommended top 5 items for user
+ recommended.items.13449 <- predict(Rec.model, Literature.matrix["13449",], n=5)
+ 
+ as(recommended.items.13449, "list")
+ 
+ 
+ #to predict affinity to all non-rated items 
+ predicted.affinity.13449 <- predict(Rec.model, Literature.matrix["13449",], type="ratings")
+ 
+ # to see the user's predicted affinity for items we didn't have any value for
+ as(predicted.affinity.13449, "list")
+ 
+ # .. and the real affinity for the items obtained from the affinity.matrix
+ as(Literature.matrix["13449",], "list")
+ 
+ 
+ #create evaluation scheme splitting taking 90% of the date for training and leaving 10% for validation or test
+ e <- evaluationScheme(Literature.matrix[1:3000], method="split", train=0.9, given=1)
+ # creation of recommender model based on ubcf
+ Rec.ubcf <- Recommender(getData(e, "train"), "UBCF")
+ # creation of recommender model based on ibcf for comparison
+ Rec.ibcf <- Recommender(getData(e, "train"), "IBCF")
+ # making predictions on the test data set
+ p.ubcf <- predict(Rec.ubcf, getData(e, "known"), type="ratings")
+ # making predictions on the test data set
+ p.ibcf <- predict(Rec.ibcf, getData(e, "known"), type="ratings")
+ # obtaining the error metrics for both approaches and comparing them
+ error.ubcf<-calcPredictionAccuracy(p.ubcf, getData(e, "unknown"))
+ error.ibcf<-calcPredictionAccuracy(p.ibcf, getData(e, "unknown"))
+ error <- rbind(error.ubcf,error.ibcf)
+ rownames(error) <- c("UBCF","IBCF")
+ error
+ 
+ 
+#validation of the model
+ evaluation_scheme <- evaluationScheme(Literature.matrix, method="cross-validation", k=5, given=1, goodRating=5) #k=5 meaning a 5-fold cross validation. given=1 meaning a Given-1 protocol
+ evaluation_results <- evaluate(evaluation_scheme, method="UBCF", n=c(1,3,5,10,15,20))
+ eval_results <- getConfusionMatrix(evaluation_results)[[1]]
+ eval_results
+ 
